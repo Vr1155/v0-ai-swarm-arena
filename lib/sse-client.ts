@@ -1,4 +1,4 @@
-import type { Message, GraphNode, GraphLink, ArchitecturePlan, Agent } from "./types"
+import type { Message, GraphNode, GraphLink, ArchitecturePlan, Agent, CodeFile } from "./types"
 
 export type SSEEventHandler = {
   onConnect?: () => void
@@ -8,6 +8,7 @@ export type SSEEventHandler = {
   onDebateStart?: () => void
   onDebateEnd?: () => void
   onPlanReady?: (plan: ArchitecturePlan) => void
+  onCodeGenerated?: (file: CodeFile) => void
   onError?: (error: Error) => void
 }
 
@@ -25,7 +26,7 @@ export class SwarmSSEClient {
     this.handlers.onConnect?.()
   }
 
-  async generateTeam(projectBrief: string): Promise<void> {
+  async generateAgents(projectBrief: string): Promise<void> {
     try {
       const response = await fetch("/api/agents/generate", {
         method: "POST",
@@ -44,14 +45,14 @@ export class SwarmSSEClient {
     }
   }
 
-  async startDebate(projectBrief: string, agents: Agent[]): Promise<void> {
+  async startDebate(projectBrief: string, agents?: Agent[]): Promise<void> {
     try {
       this.handlers.onDebateStart?.()
 
       const response = await fetch("/api/debate/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectBrief, agents }),
+        body: JSON.stringify({ projectBrief, agents: agents || [] }),
       })
 
       if (!response.ok) throw new Error("Failed to start debate")
@@ -99,6 +100,10 @@ export class SwarmSSEClient {
 
       case "plan_ready":
         this.handlers.onPlanReady?.(payload)
+        break
+
+      case "code_generated":
+        this.handlers.onCodeGenerated?.(payload)
         break
 
       default:

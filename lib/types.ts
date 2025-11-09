@@ -3,6 +3,7 @@ export interface Agent {
   name: string
   role: "PM" | "Dev" | "UX" | "QA"
   color: string
+  status: "idle" | "thinking" | "speaking" | "listening" // Adding agent status
 }
 
 export interface Message {
@@ -38,4 +39,25 @@ export interface ArchitecturePlan {
   components: string[]
   techStack: string[]
   timeline: string
+}
+
+export interface AgentThought {
+  id: string
+  agentId: string
+  content: string
+  timestamp: number
+  type: "thinking" | "proposal" | "response" | "agreement" | "concern" // Adding thought types
+}
+
+export interface AgentStatus {
+  agentId: string
+  status: "idle" | "thinking" | "speaking" | "listening"
+  lastActive: number
+}
+
+export interface CodeFile {
+  path: string
+  content: string
+  language: string
+  timestamp: number
 }

@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { Agent, Message, GraphNode, GraphLink, ArchitecturePlan } from "@/lib/types"
+import type { Agent, Message, GraphNode, GraphLink, ArchitecturePlan, CodeFile } from "@/lib/types"
 import type { SwarmSSEClient } from "@/lib/sse-client"
 
 interface SwarmState {
@@ -10,8 +10,11 @@ interface SwarmState {
   architecturePlan: ArchitecturePlan | null
   isConnected: boolean
   isDebating: boolean
+  debateFinished: boolean
   projectBrief: string
   sseClient: SwarmSSEClient | null
+  systemMessage: string
+  codeFiles: CodeFile[]
 
   setAgents: (agents: Agent[]) => void
   addMessage: (message: Message) => void
@@ -19,7 +22,10 @@ interface SwarmState {
   setArchitecturePlan: (plan: ArchitecturePlan) => void
   setIsConnected: (connected: boolean) => void
   setIsDebating: (debating: boolean) => void
+  setDebateFinished: (finished: boolean) => void
   setProjectBrief: (brief: string) => void
+  setSystemMessage: (message: string) => void
+  addCodeFile: (file: CodeFile) => void
   reset: () => void
 }
 
@@ -31,8 +37,11 @@ export const useSwarmStore = create<SwarmState>((set) => ({
   architecturePlan: null,
   isConnected: false,
   isDebating: false,
+  debateFinished: false,
   projectBrief: "",
   sseClient: null,
+  systemMessage: "",
+  codeFiles: [],
 
   setAgents: (agents) => set({ agents }),
   addMessage: (message) =>
@@ -47,7 +56,13 @@ export const useSwarmStore = create<SwarmState>((set) => ({
   setArchitecturePlan: (plan) => set({ architecturePlan: plan }),
   setIsConnected: (connected) => set({ isConnected: connected }),
   setIsDebating: (debating) => set({ isDebating: debating }),
+  setDebateFinished: (finished) => set({ debateFinished: finished }),
   setProjectBrief: (brief) => set({ projectBrief: brief }),
+  setSystemMessage: (message) => set({ systemMessage: message }),
+  addCodeFile: (file) =>
+    set((state) => ({
+      codeFiles: [...state.codeFiles, file],
+    })),
   reset: () =>
     set({
       agents: [],
@@ -56,5 +71,8 @@ export const useSwarmStore = create<SwarmState>((set) => ({
       graphLinks: [],
       architecturePlan: null,
       isDebating: false,
+      debateFinished: false,
+      systemMessage: "",
+      codeFiles: [],
     }),
 }))
