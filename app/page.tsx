@@ -28,7 +28,6 @@ const createSessionId = () => {
 }
 
 export default function Home() {
-  const [projectBrief, setProjectBrief] = useState("")
   const [conversationStatus, setConversationStatus] = useState<ConversationStatus>("idle")
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [sessionId] = useState(() => createSessionId())
@@ -40,15 +39,21 @@ export default function Home() {
   const [requirementsMarkdown, setRequirementsMarkdown] = useState<string | null>(null)
   const [mediaSupported, setMediaSupported] = useState(true)
   const [lastReplyAudio, setLastReplyAudio] = useState<string | null>(null)
+  const [manualMessage, setManualMessage] = useState("")
   const router = useRouter()
   const { setProjectBrief: setStoreBrief } = useSwarmStore()
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const conversationSummary = useMemo(() => {
+    return conversationLog
+      .map((turn) => `${turn.role === "assistant" ? "Assistant" : "User"}: ${turn.content}`)
+      .join("\n")
+  }, [conversationLog])
+
+  const handleSubmit = () => {
     if (requirementsReady) {
-      setStoreBrief(requirementsMarkdown || projectBrief || "")
+      setStoreBrief(requirementsMarkdown || conversationSummary || "")
       router.push("/arena")
     }
   }
@@ -153,10 +158,6 @@ export default function Home() {
           { role: "user", content: data.transcript },
           { role: "assistant", content: data.reply },
         ])
-        setProjectBrief((prev) => {
-          const pieces = [prev, data.transcript, data.reply].filter(Boolean)
-          return pieces.join("\n\n")
-        })
         setLastReplyAudio(data.audio_b64 ?? null)
         await finalizeRequirementsDoc()
       } catch (error) {
@@ -226,6 +227,36 @@ export default function Home() {
     }
   }
 
+  const handleManualSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const message = manualMessage.trim()
+    if (!message) return
+    await ensureSession()
+    setManualMessage("")
+    setVoiceError(null)
+    setConversationStatus("processing")
+    setRequirementsReady(false)
+    setConversationLog((prev) => [...prev, { role: "user", content: message }])
+    try {
+      const response = await fetch(`${BACKEND_URL}/chat/text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, message }),
+      })
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+      const data = await response.json()
+      setConversationLog((prev) => [...prev, { role: "assistant", content: data.reply }])
+      setLastReplyAudio(null)
+      await finalizeRequirementsDoc()
+    } catch (error) {
+      console.error("text-turn", error)
+      setVoiceError("Text conversation failed. Please try again.")
+      setConversationStatus("idle")
+    }
+  }
+
   const conversationStatusMessage = useMemo(() => {
     switch (conversationStatus) {
       case "recording":
@@ -238,7 +269,7 @@ export default function Home() {
           : "Requirements document ready."
       default:
         return sessionReady
-          ? "Tap the mic to describe your project."
+          ? "Tap the mic or type below to describe your project."
           : "Connecting to the agent..."
     }
   }, [conversationStatus, requirementsFileName, sessionReady])
@@ -367,13 +398,7 @@ export default function Home() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <Textarea
-                  placeholder="Example: A social media platform for pet owners with real-time chat, photo sharing, and event planning features..."
-                  className="min-h-40 resize-none bg-input/50 border-border/50 focus:border-primary/50 text-base"
-                  value={projectBrief}
-                  onChange={(e) => setProjectBrief(e.target.value)}
-                />
+              <div className="space-y-6">
                 <div className="flex flex-col gap-4 rounded-2xl border border-primary/30 bg-primary/5 p-4">
                   <div className="flex flex-col gap-1">
                     <p className="text-sm font-semibold text-primary">Voice conversation</p>
@@ -414,9 +439,25 @@ export default function Home() {
                       </span>
                     </div>
                   </div>
+                  <form onSubmit={handleManualSubmit} className="flex flex-col gap-2 sm:flex-row">
+                    <Textarea
+                      placeholder="Prefer to type? Describe a feature or ask a question..."
+                      className="flex-1 bg-black/40 border border-border/40 text-sm"
+                      value={manualMessage}
+                      onChange={(e) => setManualMessage(e.target.value)}
+                      rows={2}
+                    />
+                    <Button
+                      type="submit"
+                      className="sm:w-32"
+                      disabled={isProcessing || isRecording || !manualMessage.trim()}
+                    >
+                      Send
+                    </Button>
+                  </form>
                   {conversationLog.length > 0 && (
-                    <div className="max-h-32 overflow-y-auto rounded-xl bg-black/30 p-3 text-xs text-muted-foreground">
-                      {conversationLog.slice(-4).map((turn, index) => (
+                    <div className="max-h-48 overflow-y-auto rounded-xl bg-black/30 p-3 text-xs text-muted-foreground space-y-2">
+                      {conversationLog.map((turn, index) => (
                         <p key={`${turn.role}-${index}`} className={turn.role === "assistant" ? "text-primary" : ""}>
                           <span className="font-semibold capitalize">{turn.role}:</span> {turn.content}
                         </p>
@@ -426,17 +467,17 @@ export default function Home() {
                   {voiceError && <p className="text-sm text-red-400">{voiceError}</p>}
                 </div>
                 <div className="flex justify-between items-center">
-                  <p className="text-sm text-muted-foreground">{projectBrief.length} characters</p>
+                  <p className="text-sm text-muted-foreground">{conversationSummary.length} characters</p>
                   <Button
-                    type="submit"
                     size="lg"
                     className="gap-2 neon-button gradient-primary text-white font-semibold px-8"
                     disabled={!requirementsReady || conversationStatus !== "ready"}
+                    onClick={handleSubmit}
                   >
                     Generate Team <ArrowRight className="w-4 h-4" />
                   </Button>
                 </div>
-              </form>
+              </div>
             </CardContent>
           </Card>
 
