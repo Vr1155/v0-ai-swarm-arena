@@ -161,7 +161,12 @@ export function AgentNetwork() {
       />
 
       {/* SVG for connections */}
-      <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
+      <svg
+        className="absolute inset-0 w-full h-full"
+        viewBox={`0 0 ${containerWidth} ${containerHeight}`}
+        preserveAspectRatio="xMidYMid meet"
+        style={{ zIndex: 1 }}
+      >
         <defs>
           {/* Glow filters for lines */}
           {Object.entries(LINE_STYLES).map(([type, style]) => (
