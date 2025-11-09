@@ -1,7 +1,7 @@
 export interface Agent {
   id: string
   name: string
-  role: "PM" | "Dev" | "UX" | "QA"
+  role: string
   color: string
   status: "idle" | "thinking" | "speaking" | "listening" // Adding agent status
 }

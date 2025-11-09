@@ -10,16 +10,27 @@ import { toast } from "sonner"
 import { ArchitecturePlanDialog } from "./architecture-plan-dialog"
 
 export function SwarmInputArea() {
-  const { projectBrief, agents, isDebating, debateFinished, architecturePlan, sseClient } = useSwarmStore()
+  const {
+    projectBrief,
+    agents,
+    isDebating,
+    debateFinished,
+    architecturePlan,
+    swarmClient,
+    swarmDocMarkdown,
+    planningStatus,
+    setPlanningStatus,
+    setSwarmDocMarkdown,
+  } = useSwarmStore()
   const [showPlanDialog, setShowPlanDialog] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
 
   const handleGenerateTeam = async () => {
-    if (!sseClient || !projectBrief) return
+    if (!swarmClient || !projectBrief) return
 
     setIsGenerating(true)
     try {
-      await sseClient.generateAgents(projectBrief)
+      await swarmClient.generateAgents(projectBrief)
       toast.success("Generating agent team...")
     } catch (error) {
       toast.error("Failed to generate team")
@@ -30,13 +41,15 @@ export function SwarmInputArea() {
   }
 
   const handleStartDebate = async () => {
-    if (!sseClient || agents.length === 0) {
+    if (!swarmClient || agents.length === 0) {
       toast.error("Generate a team first")
       return
     }
 
     try {
-      await sseClient.startDebate(projectBrief, agents)
+      setPlanningStatus("in_progress")
+      setSwarmDocMarkdown(null)
+      await swarmClient.startDebate(projectBrief, agents)
       toast.success("Debate started!")
     } catch (error) {
       toast.error("Failed to start debate")
@@ -45,24 +58,21 @@ export function SwarmInputArea() {
   }
 
   const handleDownload = async () => {
-    try {
-      const response = await fetch("/api/download")
-      if (!response.ok) throw new Error("Download failed")
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `${projectBrief.slice(0, 30).replace(/\s+/g, "-")}-scaffold.zip`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
-      toast.success("Artifact downloaded!")
-    } catch (error) {
-      toast.error("Failed to download artifact")
-      console.error(error)
+    if (!swarmDocMarkdown) {
+      toast.error("No execution plan available yet")
+      return
     }
+
+    const blob = new Blob([swarmDocMarkdown], { type: "text/markdown" })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${projectBrief.slice(0, 30).replace(/\s+/g, "-") || "swarm"}-plan.md`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+    toast.success("Execution plan downloaded!")
   }
 
   return (
@@ -86,7 +96,7 @@ export function SwarmInputArea() {
           </div>
 
           {/* Control Buttons */}
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 items-center">
             <Button
               onClick={handleGenerateTeam}
               disabled={isGenerating || agents.length > 0}
@@ -108,7 +118,7 @@ export function SwarmInputArea() {
 
             <Button
               onClick={() => setShowPlanDialog(true)}
-              disabled={!architecturePlan}
+              disabled={!architecturePlan && !swarmDocMarkdown}
               variant="outline"
               className="gap-2 border-primary/50 bg-black/60 backdrop-blur-sm hover:bg-primary/10 hover:border-primary text-primary shadow-lg shadow-primary/20"
             >
@@ -116,9 +126,15 @@ export function SwarmInputArea() {
               View Plan
             </Button>
 
+            <div className="text-sm font-semibold text-primary/80">
+              {planningStatus === "done" && "Planning done! View the plan to review."}
+              {planningStatus === "approved" && "Plan is ready!"}
+              {planningStatus === "in_progress" && "Planning in progress..."}
+            </div>
+
             <Button
               onClick={handleDownload}
-              disabled={!architecturePlan}
+              disabled={!swarmDocMarkdown}
               variant="outline"
               className="gap-2 ml-auto border-cyan-500/50 bg-black/60 backdrop-blur-sm hover:bg-cyan-500/10 hover:border-cyan-500 text-cyan-400 shadow-lg shadow-cyan-500/20"
             >

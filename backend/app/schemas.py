@@ -40,6 +40,19 @@ class SwarmPlanResponse(BaseModel):
     execution_plan: Dict[str, Any]
     execution_markdown: str
 
+
+class TeamPlanResponse(BaseModel):
+    team_plan: Dict[str, Any]
+
+
+class PlanExportRequest(BaseModel):
+    session_id: str
+
+
+class PlanExportResponse(BaseModel):
+    ok: bool
+    path: str
+
 # Evolving requirements state schema (kept flexible)
 # The agent will fill these incrementally.
 REQUIREMENTS_TEMPLATE = {

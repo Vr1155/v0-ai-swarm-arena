@@ -386,6 +386,11 @@ class SwarmProjectBuilder:
         result = await self._run_core(brief, rounds=rounds)
         return result
 
+    async def plan_team_only(self, brief: Dict[str, Any], rounds: Optional[int] = None) -> Dict[str, Any]:
+        if not brief:
+            raise ValueError("Project brief is required to design a team plan.")
+        return await self.team_designer.design_team(brief, rounds_override=rounds)
+
     async def plan_project_stream(
         self,
         brief: Dict[str, Any],

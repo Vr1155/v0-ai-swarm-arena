@@ -19,6 +19,9 @@ from app.schemas import (
     FinalizeDocResponse,
     SwarmPlanRequest,
     SwarmPlanResponse,
+    TeamPlanResponse,
+    PlanExportRequest,
+    PlanExportResponse,
     REQUIREMENTS_TEMPLATE,
 )
 from app.templates.requirements_doc import render_requirements_markdown
@@ -36,7 +39,10 @@ app.add_middleware(
 store = SessionStore()
 agent = IntentManager(session_store=store)
 swarm_builder = SwarmProjectBuilder()
-FRONTEND_INDEX = Path(__file__).resolve().parent / "frontend" / "index.html"
+BASE_DIR = Path(__file__).resolve().parent
+FRONTEND_INDEX = BASE_DIR / "frontend" / "index.html"
+ARTIFACT_DIR = BASE_DIR / "artifacts"
+ARTIFACT_DIR.mkdir(exist_ok=True)
 INITIAL_GREETING = "Hello! I am your product creation assistant. How may I help you?"
 DEFAULT_VOICE_ID = "vBKc2FfBKJfcZNyEt1n6"
 
@@ -114,6 +120,19 @@ def _resolve_brief(
     return brief, session_state
 
 
+@app.post("/projects/team-plan", response_model=TeamPlanResponse)
+async def generate_team_plan(req: SwarmPlanRequest):
+    brief, session_state = _resolve_brief(req.session_id, req.brief_override)
+    if not brief:
+        raise HTTPException(status_code=400, detail="Project brief missing. Provide session_id or brief_override.")
+
+    team_plan = await swarm_builder.plan_team_only(brief, rounds=req.rounds)
+    if session_state is not None and req.session_id:
+        session_state.setdefault("tech_specs", {})["team_plan"] = team_plan
+        store.set(req.session_id, session_state)
+    return TeamPlanResponse(team_plan=team_plan)
+
+
 @app.post("/projects/tech-plan", response_model=SwarmPlanResponse)
 async def generate_technical_plan(req: SwarmPlanRequest):
     brief, session_state = _resolve_brief(req.session_id, req.brief_override)
@@ -125,6 +144,20 @@ async def generate_technical_plan(req: SwarmPlanRequest):
         session_state.setdefault("tech_specs", {})["latest"] = result
         store.set(req.session_id, session_state)
     return SwarmPlanResponse(**result)
+
+
+@app.post("/projects/plan/export", response_model=PlanExportResponse)
+async def export_plan(req: PlanExportRequest):
+    session_state = store.get(req.session_id)
+    latest = session_state.get("tech_specs", {}).get("latest") if session_state else None
+    if not latest:
+        raise HTTPException(status_code=404, detail="No generated plan found for this session.")
+    requirements_md = latest.get("markdown") or ""
+    execution_md = latest.get("execution_markdown") or ""
+    combined = "# Requirements\n\n" + requirements_md.strip() + "\n\n# Execution Plan\n\n" + execution_md.strip()
+    file_path = ARTIFACT_DIR / "technicaldetails.md"
+    file_path.write_text(combined.strip() + "\n", encoding="utf-8")
+    return PlanExportResponse(ok=True, path=str(file_path))
 
 
 @app.websocket("/ws/projects/tech-plan")
