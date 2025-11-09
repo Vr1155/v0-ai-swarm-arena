@@ -46,7 +46,7 @@ export function ArchitecturePlanDialog({ plan, open, onOpenChange }: Architectur
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] bg-black/95 backdrop-blur-2xl border-primary/30 shadow-2xl shadow-primary/20">
+      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col bg-black/95 backdrop-blur-2xl border-primary/30 shadow-2xl shadow-primary/20">
         <DialogHeader>
           <DialogTitle className="text-2xl flex items-center gap-2 bg-gradient-to-r from-primary via-cyan-400 to-primary bg-clip-text text-transparent">
             <span className="text-2xl">🎯</span> {plan.projectName}
@@ -56,7 +56,7 @@ export function ArchitecturePlanDialog({ plan, open, onOpenChange }: Architectur
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[calc(90vh-180px)]">
+        <ScrollArea className="flex-1 min-h-0">
           <div className="space-y-6 pr-4">
             {/* Project Overview */}
             <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
@@ -139,7 +139,7 @@ export function ArchitecturePlanDialog({ plan, open, onOpenChange }: Architectur
           </div>
         </ScrollArea>
 
-        <div className="border-t border-primary/20 pt-4 space-y-3">
+        <div className="border-t border-primary/20 pt-4 space-y-3 bg-black/95">
           <div className="space-y-2">
             <label className="text-sm font-medium text-cyan-400">Your Feedback</label>
             <Textarea

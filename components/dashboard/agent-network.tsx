@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useSwarmStore } from "@/store/swarm-store"
 import { motion, AnimatePresence } from "framer-motion"
 import { Brain, Cog, Users, Code, Palette, ClipboardCheck } from "lucide-react"
@@ -48,6 +48,11 @@ export function AgentNetwork() {
   const [connections, setConnections] = useState<AgentConnection[]>([])
   const [activeAgents, setActiveAgents] = useState<Set<string>>(new Set())
   const [chatBubbles, setChatBubbles] = useState<ChatBubble[]>([])
+  const agentRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [lineCoords, setLineCoords] = useState<Map<string, { x1: number; y1: number; x2: number; y2: number }>>(
+    new Map(),
+  )
 
   // Track agent connections based on messages
   useEffect(() => {
@@ -97,6 +102,52 @@ export function AgentNetwork() {
     }
   }, [messages, agents])
 
+  useEffect(() => {
+    const updateLineCoordinates = () => {
+      if (!containerRef.current) return
+
+      const containerRect = containerRef.current.getBoundingClientRect()
+      const newLineCoords = new Map()
+
+      connections.forEach((conn, index) => {
+        const fromElement = agentRefs.current.get(conn.from)
+        const toElement = agentRefs.current.get(conn.to)
+
+        if (fromElement && toElement) {
+          const fromRect = fromElement.getBoundingClientRect()
+          const toRect = toElement.getBoundingClientRect()
+
+          // Calculate center positions relative to container
+          const fromX = fromRect.left + fromRect.width / 2 - containerRect.left
+          const fromY = fromRect.top + fromRect.height / 2 - containerRect.top
+          const toX = toRect.left + toRect.width / 2 - containerRect.left
+          const toY = toRect.top + toRect.height / 2 - containerRect.top
+
+          // Calculate angle and edge points
+          const dx = toX - fromX
+          const dy = toY - fromY
+          const angle = Math.atan2(dy, dx)
+          const radius = fromRect.width / 2
+
+          const x1 = fromX + radius * Math.cos(angle)
+          const y1 = fromY + radius * Math.sin(angle)
+          const x2 = toX - radius * Math.cos(angle)
+          const y2 = toY - radius * Math.sin(angle)
+
+          newLineCoords.set(`${conn.from}-${conn.to}-${index}`, { x1, y1, x2, y2 })
+        }
+      })
+
+      setLineCoords(newLineCoords)
+    }
+
+    updateLineCoordinates()
+
+    // Update on window resize
+    window.addEventListener("resize", updateLineCoordinates)
+    return () => window.removeEventListener("resize", updateLineCoordinates)
+  }, [connections, agents])
+
   if (agents.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-[600px] space-y-4">
@@ -123,7 +174,7 @@ export function AgentNetwork() {
   const centerX = containerWidth / 2
   const centerY = containerHeight / 2
   const radius = 180
-  const CIRCLE_RADIUS = 48 // Half of the agent circle's 96px (w-24) width
+
   const agentPositions = agents.map((agent, index) => {
     const angle = (index / agents.length) * 2 * Math.PI - Math.PI / 2
     return {
@@ -133,25 +184,11 @@ export function AgentNetwork() {
     }
   })
 
-  const getLineCoordinates = (from: { x: number; y: number }, to: { x: number; y: number }) => {
-    // Calculate angle between two points
-    const dx = to.x - from.x
-    const dy = to.y - from.y
-    const angle = Math.atan2(dy, dx)
-
-    // Calculate start point at edge of 'from' circle
-    const x1 = from.x + CIRCLE_RADIUS * Math.cos(angle)
-    const y1 = from.y + CIRCLE_RADIUS * Math.sin(angle)
-
-    // Calculate end point at edge of 'to' circle
-    const x2 = to.x - CIRCLE_RADIUS * Math.cos(angle)
-    const y2 = to.y - CIRCLE_RADIUS * Math.sin(angle)
-
-    return { x1, y1, x2, y2 }
-  }
-
   return (
-    <div className="relative w-full h-[600px] glass-effect rounded-2xl border-2 border-primary/20 overflow-hidden shadow-2xl">
+    <div
+      ref={containerRef}
+      className="relative w-full h-[600px] glass-effect rounded-2xl border-2 border-primary/20 overflow-hidden shadow-2xl"
+    >
       <div
         className="absolute inset-0 bg-black/40"
         style={{
@@ -160,13 +197,7 @@ export function AgentNetwork() {
         }}
       />
 
-      {/* SVG for connections */}
-      <svg
-        className="absolute inset-0 w-full h-full"
-        viewBox={`0 0 ${containerWidth} ${containerHeight}`}
-        preserveAspectRatio="xMidYMid meet"
-        style={{ zIndex: 1 }}
-      >
+      <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
         <defs>
           {/* Glow filters for lines */}
           {Object.entries(LINE_STYLES).map(([type, style]) => (
@@ -182,20 +213,19 @@ export function AgentNetwork() {
 
         <AnimatePresence>
           {connections.map((conn, index) => {
-            const fromPos = agentPositions.find((a) => a.id === conn.from)
-            const toPos = agentPositions.find((a) => a.id === conn.to)
-            if (!fromPos || !toPos) return null
+            const key = `${conn.from}-${conn.to}-${index}`
+            const coords = lineCoords.get(key)
+            if (!coords) return null
 
-            const { x1, y1, x2, y2 } = getLineCoordinates(fromPos, toPos)
             const style = LINE_STYLES[conn.type]
 
             return (
               <motion.line
-                key={`${conn.from}-${conn.to}-${index}`}
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
+                key={key}
+                x1={coords.x1}
+                y1={coords.y1}
+                x2={coords.x2}
+                y2={coords.y2}
                 stroke={style.color}
                 strokeWidth="3"
                 strokeDasharray={style.dashArray}
@@ -245,8 +275,10 @@ export function AgentNetwork() {
                   />
                 )}
 
-                {/* Agent circle */}
                 <motion.div
+                  ref={(el) => {
+                    if (el) agentRefs.current.set(agent.id, el)
+                  }}
                   animate={
                     isActive
                       ? {
