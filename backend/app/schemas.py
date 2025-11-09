@@ -40,6 +40,7 @@ class SwarmPlanResponse(BaseModel):
     execution_plan: Dict[str, Any]
     execution_markdown: str
 
+<<<<<<< HEAD
 class BuildStartRequest(BaseModel):
     session_id: str
     preferences: Optional[Dict[str, Any]] = None
@@ -57,6 +58,20 @@ class BuildStatusResponse(BaseModel):
     download_path: Optional[str] = None
     stack: Optional[Dict[str, Any]] = None
     validation_reports: List[Dict[str, Any]] = []
+=======
+
+class TeamPlanResponse(BaseModel):
+    team_plan: Dict[str, Any]
+
+
+class PlanExportRequest(BaseModel):
+    session_id: str
+
+
+class PlanExportResponse(BaseModel):
+    ok: bool
+    path: str
+>>>>>>> origin/langGraph
 
 # Evolving requirements state schema (kept flexible)
 # The agent will fill these incrementally.

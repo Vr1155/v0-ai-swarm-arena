@@ -6,13 +6,15 @@ import { useSwarmStore } from "@/store/swarm-store"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { SwarmInputArea } from "@/components/dashboard/swarm-input-area"
 import { AgentNetwork } from "@/components/dashboard/agent-network"
-import { SwarmSSEClient } from "@/lib/sse-client"
+import { SwarmRealtimeClient } from "@/lib/swarm-client"
 import { toast } from "sonner"
 
 export default function ArenaPage() {
   const router = useRouter()
   const {
     projectBrief,
+    projectRequirements,
+    sessionId,
     setIsConnected,
     addMessage,
     setAgents,
@@ -20,19 +22,22 @@ export default function ArenaPage() {
     setArchitecturePlan,
     setIsDebating,
     addCodeFile,
-    setSystemMessage,
     setDebateFinished,
+    setSwarmClient,
+    setSwarmDocMarkdown,
+    setPlanningStatus,
   } = useSwarmStore()
-  const sseRef = useRef<SwarmSSEClient | null>(null)
+  const clientRef = useRef<SwarmRealtimeClient | null>(null)
 
   useEffect(() => {
     // Redirect to home if no project brief
-    if (!projectBrief) {
+    if (!projectBrief || (!projectRequirements && !sessionId)) {
       router.push("/")
       return
     }
 
-    sseRef.current = new SwarmSSEClient({
+    const client = new SwarmRealtimeClient(
+      {
       onConnect: () => {
         setIsConnected(true)
         toast.success("Connected to AI Swarm Arena")
@@ -46,21 +51,10 @@ export default function ArenaPage() {
       onAgentsGenerated: ({ agents, nodes, links }) => {
         setAgents(agents)
         updateGraph(nodes, links)
-        const pmAgent = agents.find((a) => a.role === "PM")
-        if (pmAgent) {
-          addMessage({
-            id: `pm-intro-${Date.now()}`,
-            agentId: pmAgent.id,
-            agentName: pmAgent.name,
-            agentRole: pmAgent.role,
-            content: `For your project, I have created these agents: ${agents.map((a) => a.role).join(", ")}. Let's start collaborating!`,
-            timestamp: Date.now(),
-            color: pmAgent.color,
-          })
-        }
         toast.success("Agent team generated!")
       },
       onDebateStart: () => {
+        setPlanningStatus("in_progress")
         setIsDebating(true)
         toast.info("Agent debate in progress...")
       },
@@ -71,25 +65,35 @@ export default function ArenaPage() {
       },
       onPlanReady: (plan) => {
         setArchitecturePlan(plan)
+        setPlanningStatus("done")
         toast.success("Architecture plan is ready!")
       },
       onCodeGenerated: (file) => {
         addCodeFile(file)
+        setSwarmDocMarkdown(file.content)
         toast.info(`Generated: ${file.path}`)
       },
       onError: (error) => {
         console.error("[v0] Arena: SSE error", error)
+        setPlanningStatus("idle")
         toast.error("Connection error occurred")
       },
-    })
+    },
+      sessionId,
+      projectRequirements,
+    )
 
-    sseRef.current.connect()
+    clientRef.current = client
+    setSwarmClient(client)
 
     return () => {
-      sseRef.current?.disconnect()
+      client.disconnect()
+      setSwarmClient(null)
     }
   }, [
     projectBrief,
+    projectRequirements,
+    sessionId,
     router,
     setIsConnected,
     addMessage,
@@ -97,16 +101,12 @@ export default function ArenaPage() {
     updateGraph,
     setArchitecturePlan,
     setIsDebating,
-    setSystemMessage,
     addCodeFile,
     setDebateFinished,
+    setSwarmClient,
+    setSwarmDocMarkdown,
+    setPlanningStatus,
   ])
-
-  useEffect(() => {
-    if (sseRef.current) {
-      useSwarmStore.setState({ sseClient: sseRef.current })
-    }
-  }, [])
 
   if (!projectBrief) {
     return null

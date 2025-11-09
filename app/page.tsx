@@ -39,10 +39,17 @@ export default function Home() {
   const [requirementsMarkdown, setRequirementsMarkdown] = useState<string | null>(null)
   const [mediaSupported, setMediaSupported] = useState(true)
   const [lastReplyAudio, setLastReplyAudio] = useState<string | null>(null)
+<<<<<<< HEAD
   const autoplayAudioRef = useRef<HTMLAudioElement | null>(null)
   const [manualMessage, setManualMessage] = useState("")
   const router = useRouter()
   const { setProjectBrief: setStoreBrief, setSessionId: persistSessionId } = useSwarmStore()
+=======
+  const [requirementsData, setRequirementsData] = useState<Record<string, any> | null>(null)
+  const [manualMessage, setManualMessage] = useState("")
+  const router = useRouter()
+  const { setProjectBrief: setStoreBrief, setProjectRequirements, setSessionId: setGlobalSessionId } = useSwarmStore()
+>>>>>>> origin/langGraph
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
@@ -53,6 +60,7 @@ export default function Home() {
   }, [conversationLog])
 
   const handleSubmit = () => {
+<<<<<<< HEAD
     if (requirementsReady) {
       if (autoplayAudioRef.current) {
         autoplayAudioRef.current.pause()
@@ -60,7 +68,16 @@ export default function Home() {
       }
       setStoreBrief(requirementsMarkdown || conversationSummary || "")
       router.push("/arena")
+=======
+    if (!requirementsReady || !requirementsData) {
+      setVoiceError("Please finalize the requirements document first.")
+      return
+>>>>>>> origin/langGraph
     }
+    setStoreBrief(requirementsMarkdown || conversationSummary || "")
+    setProjectRequirements(requirementsData)
+    setGlobalSessionId(sessionId)
+    router.push("/arena")
   }
 
   const finalizeRequirementsDoc = useCallback(async () => {
@@ -77,6 +94,7 @@ export default function Home() {
 
       const data = await response.json()
       setRequirementsMarkdown(data.markdown)
+      setRequirementsData(data.requirements)
       setRequirementsFileName("requirements.md")
       setRequirementsReady(true)
       setConversationStatus("ready")

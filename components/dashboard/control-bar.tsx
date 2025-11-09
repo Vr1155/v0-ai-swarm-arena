@@ -9,7 +9,17 @@ import { toast } from "sonner"
 import { ArchitecturePlanDialog } from "./architecture-plan-dialog"
 
 export function ControlBar() {
-  const { isDebating, architecturePlan, projectBrief, sseClient, agents, reset } = useSwarmStore()
+  const {
+    isDebating,
+    architecturePlan,
+    projectBrief,
+    swarmClient,
+    agents,
+    reset,
+    swarmDocMarkdown,
+    setPlanningStatus,
+    setSwarmDocMarkdown,
+  } = useSwarmStore()
   const [isGenerating, setIsGenerating] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -23,7 +33,7 @@ export function ControlBar() {
 
     setIsGenerating(true)
     try {
-      await sseClient?.generateTeam(projectBrief)
+      await swarmClient?.generateAgents(projectBrief)
     } catch (error) {
       console.error("[v0] Error generating team:", error)
       toast.error("Failed to generate team")
@@ -45,7 +55,9 @@ export function ControlBar() {
 
     setIsStarting(true)
     try {
-      await sseClient?.startDebate(projectBrief, agents)
+      setPlanningStatus("in_progress")
+      setSwarmDocMarkdown(null)
+      await swarmClient?.startDebate(projectBrief, agents)
     } catch (error) {
       console.error("[v0] Error starting debate:", error)
       toast.error("Failed to start debate")
@@ -59,35 +71,24 @@ export function ControlBar() {
   }
 
   const handleDownload = async () => {
-    if (!architecturePlan) {
-      toast.error("No architecture plan available")
+    if (!swarmDocMarkdown) {
+      toast.error("No execution plan available")
       return
     }
 
     setIsDownloading(true)
     try {
-      toast.info("Preparing download...")
-
-      const response = await fetch("/api/download")
-      if (!response.ok) throw new Error("Download failed")
-
-      const blob = await response.blob()
-
-      // Create download link
+      const blob = new Blob([swarmDocMarkdown], { type: "text/markdown" })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
-      link.download = "ai-swarm-project.zip"
-
-      // Trigger download
+      link.download = `${projectBrief.slice(0, 30).replace(/\s+/g, "-") || "swarm"}-plan.md`
       document.body.appendChild(link)
       link.click()
-
-      // Cleanup
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
 
-      toast.success("Project artifact downloaded!")
+      toast.success("Execution plan downloaded!")
     } catch (error) {
       console.error("[v0] Error downloading artifact:", error)
       toast.error("Failed to download artifact")
@@ -121,14 +122,19 @@ export function ControlBar() {
               {isStarting ? "Starting..." : "Start Debate"}
             </Button>
 
-            <Button onClick={handleShowPlan} disabled={!architecturePlan} variant="secondary" className="gap-2">
+            <Button
+              onClick={handleShowPlan}
+              disabled={!architecturePlan && !swarmDocMarkdown}
+              variant="secondary"
+              className="gap-2"
+            >
               <FileText className="w-4 h-4" />
               Show Plan
             </Button>
 
             <Button
               onClick={handleDownload}
-              disabled={!architecturePlan || isDownloading}
+              disabled={!swarmDocMarkdown || isDownloading}
               variant="secondary"
               className="gap-2"
             >
