@@ -118,17 +118,18 @@ export function AgentNetwork() {
   }
 
   // Calculate positions for agents in a circle
-  const centerX = 50 // percentage
-  const centerY = 50 // percentage
-  const radiusX = 25 // percentage
-  const radiusY = 25 // percentage
-  const CIRCLE_RADIUS = 48 // pixels - half of w-24 (96px)
+  const containerWidth = 800
+  const containerHeight = 600
+  const centerX = containerWidth / 2
+  const centerY = containerHeight / 2
+  const radius = 180
+  const CIRCLE_RADIUS = 48 // Half of the agent circle's 96px (w-24) width
   const agentPositions = agents.map((agent, index) => {
     const angle = (index / agents.length) * 2 * Math.PI - Math.PI / 2
     return {
       ...agent,
-      x: centerX + radiusX * Math.cos(angle),
-      y: centerY + radiusY * Math.sin(angle),
+      x: centerX + radius * Math.cos(angle),
+      y: centerY + radius * Math.sin(angle),
     }
   })
 
@@ -160,42 +161,49 @@ export function AgentNetwork() {
       />
 
       {/* SVG for connections */}
-      <div className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
+      <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 1 }}>
+        <defs>
+          {/* Glow filters for lines */}
+          {Object.entries(LINE_STYLES).map(([type, style]) => (
+            <filter key={type} id={`glow-${type}`} x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+              <feMerge>
+                <feMergeNode in="coloredBlur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          ))}
+        </defs>
+
         <AnimatePresence>
           {connections.map((conn, index) => {
             const fromPos = agentPositions.find((a) => a.id === conn.from)
             const toPos = agentPositions.find((a) => a.id === conn.to)
             if (!fromPos || !toPos) return null
 
+            const { x1, y1, x2, y2 } = getLineCoordinates(fromPos, toPos)
             const style = LINE_STYLES[conn.type]
 
-            const dx = toPos.x - fromPos.x
-            const dy = toPos.y - fromPos.y
-            const angle = Math.atan2(dy, dx)
-            const length = Math.sqrt(dx * dx + dy * dy)
-
             return (
-              <motion.div
+              <motion.line
                 key={`${conn.from}-${conn.to}-${index}`}
-                className="absolute origin-left"
-                style={{
-                  left: `${fromPos.x}%`,
-                  top: `${fromPos.y}%`,
-                  width: `${length}%`,
-                  height: "3px",
-                  backgroundColor: style.color,
-                  transform: `rotate(${angle}rad)`,
-                  boxShadow: `0 0 10px ${style.color}`,
-                }}
-                initial={{ scaleX: 0, opacity: 0 }}
-                animate={{ scaleX: 1, opacity: 0.8 }}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke={style.color}
+                strokeWidth="3"
+                strokeDasharray={style.dashArray}
+                filter={`url(#glow-${conn.type})`}
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 0.8 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.6, ease: "easeOut" }}
               />
             )
           })}
         </AnimatePresence>
-      </div>
+      </svg>
 
       {/* Agent nodes */}
       <div className="absolute inset-0" style={{ zIndex: 2 }}>
@@ -213,8 +221,8 @@ export function AgentNetwork() {
                 transition={{ delay: index * 0.1, type: "spring" }}
                 className="absolute"
                 style={{
-                  left: `${agent.x}%`,
-                  top: `${agent.y}%`,
+                  left: `${agent.x}px`,
+                  top: `${agent.y}px`,
                   transform: "translate(-50%, -50%)",
                 }}
               >
