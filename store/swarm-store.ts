@@ -12,6 +12,7 @@ interface SwarmState {
   isDebating: boolean
   debateFinished: boolean
   projectBrief: string
+  sessionId: string | null
   sseClient: SwarmSSEClient | null
   systemMessage: string
   codeFiles: CodeFile[]
@@ -24,6 +25,7 @@ interface SwarmState {
   setIsDebating: (debating: boolean) => void
   setDebateFinished: (finished: boolean) => void
   setProjectBrief: (brief: string) => void
+  setSessionId: (sessionId: string) => void
   setSystemMessage: (message: string) => void
   addCodeFile: (file: CodeFile) => void
   reset: () => void
@@ -39,6 +41,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
   isDebating: false,
   debateFinished: false,
   projectBrief: "",
+  sessionId: null,
   sseClient: null,
   systemMessage: "",
   codeFiles: [],
@@ -58,6 +61,7 @@ export const useSwarmStore = create<SwarmState>((set) => ({
   setIsDebating: (debating) => set({ isDebating: debating }),
   setDebateFinished: (finished) => set({ debateFinished: finished }),
   setProjectBrief: (brief) => set({ projectBrief: brief }),
+  setSessionId: (sessionId) => set({ sessionId }),
   setSystemMessage: (message) => set({ systemMessage: message }),
   addCodeFile: (file) =>
     set((state) => ({

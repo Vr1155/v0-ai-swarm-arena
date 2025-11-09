@@ -16,8 +16,12 @@ from app.templates.requirements_doc import render_requirements_markdown
 
 logger = logging.getLogger(__name__)
 
-PROJECT_PLANNER_PROMPT = """You are a senior full-stack engineer.
-Given the requirements document, pick the most appropriate stack and produce a concise plan.
+PROJECT_PLANNER_PROMPT = """You are a senior full-stack engineer preparing to scaffold a project from a vetted multi-agent design.
+You receive:
+- A consolidated requirements document
+- The execution plan authored by the swarm
+- Recent debate highlights summarizing design intent
+Use that context to choose the best stack and output a concise build plan.
 Return STRICT JSON:
 {
   "project_name": "short title",
@@ -103,21 +107,23 @@ class BuildManager:
 
             session_id = record["session_id"]
             state = self.session_store.get(session_id)
-            requirements_md = self._get_requirements_markdown(state)
+            swarm_context = self._gather_swarm_artifacts(state)
+            requirements_md = swarm_context["requirements_md"]
+            context_doc = swarm_context["context_doc"]
 
             record["status"] = "planning"
             record["message"] = "Drafting project plan"
-            plan = await self._plan_project(requirements_md, record["preferences"])
+            plan = await self._plan_project(context_doc, record["preferences"])
             record["plan"] = plan
 
             if plan and self._plan_has_minimum(plan):
                 record["status"] = "generating"
                 record["message"] = "Generating source files"
-                spec = await self._generate_from_plan(plan, requirements_md)
+                spec = await self._generate_from_plan(plan, context_doc)
                 if not spec.get("files"):
-                    spec = self._fallback_spec(requirements_md)
+                    spec = self._fallback_spec(context_doc)
             else:
-                spec = self._fallback_spec(requirements_md)
+                spec = self._fallback_spec(context_doc)
 
             workspace = self.artifacts_dir / f"{build_id}_workspace"
             if workspace.exists():
@@ -125,7 +131,7 @@ class BuildManager:
             workspace.mkdir(parents=True, exist_ok=True)
 
             self._write_files(workspace, spec.get("files", []))
-            self._ensure_readme(workspace, spec, requirements_md)
+            self._ensure_readme(workspace, spec, context_doc)
 
             record["status"] = "validating"
             record["message"] = "Running quick validations"
@@ -150,8 +156,8 @@ class BuildManager:
             record["error"] = traceback.format_exc()
             logger.exception("Build %s failed", build_id)
 
-    async def _plan_project(self, requirements_md: str, preferences: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        prompt = PROJECT_PLANNER_PROMPT + "\n\n" + requirements_md
+    async def _plan_project(self, context_doc: str, preferences: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        prompt = PROJECT_PLANNER_PROMPT + "\n\n" + context_doc
         if preferences:
             prompt += "\n\nUser preferences/hints:\n" + json.dumps(preferences, indent=2)
         plan = await self.llm.extract_json(
@@ -170,7 +176,7 @@ class BuildManager:
         has_backend = any((f.get("type") == "backend" or (f.get("path") or "").startswith("backend/")) for f in files)
         return bool(has_frontend and has_backend and files)
 
-    async def _generate_from_plan(self, plan: Dict[str, Any], requirements_md: str) -> Dict[str, Any]:
+    async def _generate_from_plan(self, plan: Dict[str, Any], context_doc: str) -> Dict[str, Any]:
         stack = plan.get("stack") or {}
         instructions = plan.get("instructions") or {}
         files_meta = plan.get("files") or []
@@ -184,7 +190,7 @@ class BuildManager:
                     path=path,
                     meta=meta,
                     stack=stack,
-                    requirements_md=requirements_md,
+                    context_doc=context_doc,
                     instructions=instructions,
                 )
                 if content:
@@ -200,7 +206,14 @@ class BuildManager:
         }
         return spec
 
-    async def _generate_single_file(self, path: str, meta: Dict[str, Any], stack: Dict[str, Any], requirements_md: str, instructions: Dict[str, Any]) -> Optional[str]:
+    async def _generate_single_file(
+        self,
+        path: str,
+        meta: Dict[str, Any],
+        stack: Dict[str, Any],
+        context_doc: str,
+        instructions: Dict[str, Any],
+    ) -> Optional[str]:
         purpose = meta.get("purpose") or "Implement the required functionality."
         language = meta.get("language") or "plain text"
         file_type = meta.get("type") or "shared"
@@ -219,8 +232,8 @@ class BuildManager:
         Language/style: {language}
         Purpose: {purpose}
 
-        Requirements document:
-        {requirements_md}
+        Technical context (requirements + execution plan + debate summary):
+        {context_doc}
 
         Output only the complete file contents for {path}.
         """).strip()
@@ -269,7 +282,52 @@ class BuildManager:
                 "stderr": f"{exc}",
             }
 
-    def _get_requirements_markdown(self, state: Dict[str, Any]) -> str:
+    def _gather_swarm_artifacts(self, state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        state = state or {}
+        latest = state.get("tech_specs", {}).get("latest") or {}
+        requirements_md = latest.get("markdown") or self._legacy_requirements_markdown(state)
+        execution_markdown = latest.get("execution_markdown") or ""
+        execution_plan = latest.get("execution_plan")
+        debate_history = latest.get("debate_history") or state.get("history", [])
+        context_doc = self._compose_context(requirements_md, execution_markdown, execution_plan, debate_history)
+        return {
+            "requirements_md": requirements_md,
+            "execution_markdown": execution_markdown,
+            "execution_plan": execution_plan,
+            "debate_history": debate_history,
+            "context_doc": context_doc,
+        }
+
+    def _compose_context(
+        self,
+        requirements_md: str,
+        execution_markdown: str,
+        execution_plan: Optional[Dict[str, Any]],
+        debate_history: Optional[List[Dict[str, Any]]],
+    ) -> str:
+        sections: List[str] = []
+        if requirements_md:
+            sections.append("# Requirements Document\n" + requirements_md.strip())
+        if execution_markdown:
+            sections.append("# Execution Plan\n" + execution_markdown.strip())
+        if execution_plan:
+            plan_json = json.dumps(execution_plan, indent=2)
+            sections.append("# Execution Plan (JSON)\n```json\n" + plan_json + "\n```")
+        if debate_history:
+            trimmed = debate_history[-10:]
+            highlights = "\n".join(
+                f"- { (msg.get('role') or 'agent').title() }: {msg.get('content', '').strip()}"
+                for msg in trimmed
+                if msg.get("content")
+            )
+            if highlights:
+                sections.append("# Debate Highlights\n" + highlights)
+        if not sections:
+            sections.append("No technical context was captured; generating from default template.")
+        return "\n\n".join(sections)
+
+    def _legacy_requirements_markdown(self, state: Dict[str, Any]) -> str:
+        state = state or {}
         uploaded = state.get("uploaded_requirements")
         if uploaded and uploaded.get("content"):
             return uploaded["content"]
@@ -292,7 +350,7 @@ class BuildManager:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
 
-    def _ensure_readme(self, workspace: Path, spec: Dict[str, Any], requirements_md: str):
+    def _ensure_readme(self, workspace: Path, spec: Dict[str, Any], context_doc: str):
         readme_path = workspace / "README.md"
         if readme_path.exists():
             return
@@ -315,12 +373,12 @@ class BuildManager:
 {run_steps}
 
 ## Requirements Snapshot
-{requirements_md}
+{context_doc}
 """)
         readme_path.write_text(readme, encoding="utf-8")
 
-    def _fallback_spec(self, requirements_md: str) -> Dict[str, Any]:
-        safe_requirements = requirements_md.replace("```", "'''")
+    def _fallback_spec(self, context_doc: str) -> Dict[str, Any]:
+        safe_requirements = context_doc.replace("```", "'''")
         backend_main = textwrap.dedent(
             f"""\
             from fastapi import FastAPI

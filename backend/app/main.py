@@ -1,13 +1,15 @@
+import os
 from pathlib import Path
 from copy import deepcopy
 from typing import Dict, Any, Optional, Tuple
 
 from fastapi import FastAPI, UploadFile, File, Query, Body, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from app.services.state import SessionStore
 from app.agents.intent_manager import IntentManager
 from app.agents.dev_swarm import SwarmProjectBuilder
+from app.services.build_manager import BuildManager
 from app.services.tts_eleven import speak_text
 # from app.services.stt_whisper import transcribe_audio
 from app.services.stt_eleven import transcribe_audio
@@ -19,6 +21,9 @@ from app.schemas import (
     FinalizeDocResponse,
     SwarmPlanRequest,
     SwarmPlanResponse,
+    BuildStartRequest,
+    BuildStartResponse,
+    BuildStatusResponse,
     REQUIREMENTS_TEMPLATE,
 )
 from app.templates.requirements_doc import render_requirements_markdown
@@ -36,6 +41,14 @@ app.add_middleware(
 store = SessionStore()
 agent = IntentManager(session_store=store)
 swarm_builder = SwarmProjectBuilder()
+build_artifacts_dir = os.getenv("BUILD_ARTIFACTS_DIR")
+build_manager = BuildManager(
+    session_store=store,
+    artifacts_dir=Path(build_artifacts_dir) if build_artifacts_dir else None,
+    provider_override=os.getenv("BUILD_LLM_PROVIDER"),
+    api_key_override=os.getenv("BUILD_LLM_API_KEY"),
+    model_override=os.getenv("BUILD_LLM_MODEL"),
+)
 FRONTEND_INDEX = Path(__file__).resolve().parent / "frontend" / "index.html"
 INITIAL_GREETING = "Hello! I am your product creation assistant. How may I help you?"
 DEFAULT_VOICE_ID = "vBKc2FfBKJfcZNyEt1n6"
@@ -157,3 +170,53 @@ async def ws_technical_plan(websocket: WebSocket):
         except Exception:  # client already gone
             pass
         await websocket.close(code=4001)
+
+
+@app.post("/build/start", response_model=BuildStartResponse)
+async def start_build(req: BuildStartRequest):
+    state = store.get(req.session_id)
+    has_requirements = bool(
+        state.get("requirements_state")
+        or state.get("tech_specs", {}).get("latest")
+    )
+    if not has_requirements:
+        raise HTTPException(status_code=400, detail="Requirements document not ready for this session.")
+
+    build_id = build_manager.start_build(req.session_id, req.preferences)
+    return BuildStartResponse(build_id=build_id)
+
+
+@app.get("/build/status/{build_id}", response_model=BuildStatusResponse)
+def build_status(build_id: str):
+    status = build_manager.get_status(build_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Unknown build ID.")
+
+    payload = {
+        "build_id": build_id,
+        "status": status.get("status", "unknown"),
+        "message": status.get("message", ""),
+        "project_name": status.get("project_name"),
+        "download_path": str(status.get("download_path")) if status.get("download_path") else None,
+        "stack": status.get("stack"),
+        "validation_reports": status.get("validation_reports", []),
+    }
+    return BuildStatusResponse(**payload)
+
+
+@app.get("/build/download/{build_id}")
+def download_build(build_id: str):
+    status = build_manager.get_status(build_id)
+    if not status or status.get("status") != "complete" or not status.get("download_path"):
+        raise HTTPException(status_code=404, detail="Build is not ready for download.")
+
+    archive_path = Path(status["download_path"])
+    if not archive_path.exists():
+        raise HTTPException(status_code=404, detail="Build artifact missing on server.")
+
+    filename = archive_path.name
+    return FileResponse(
+        archive_path,
+        media_type="application/zip",
+        filename=filename,
+    )

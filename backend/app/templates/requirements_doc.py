@@ -1,18 +1,29 @@
 from typing import Dict, Any, List
 
-def _line(title): return f"\n---\n\n# {title}\n"
 
-def _format_conversation(history: List[Dict[str, str]]) -> str:
+def _line(title):
+    return f"\n---\n\n# {title}\n"
+
+
+def _summarize(history: List[Dict[str, str]]) -> str:
+    """Create a lightweight summary instead of dumping the entire transcript."""
     if not history:
         return ""
-    transcript = _line("Conversation Transcript")
-    for turn in history:
-        role = turn.get("role", "").lower()
-        speaker = "User" if role == "user" else "Assistant"
-        content = turn.get("content", "").strip()
-        if content:
-            transcript += f"**{speaker}:** {content}\n\n"
-    return transcript
+
+    summary = _line("Conversation Summary")
+    user_points = [turn.get("content", "").strip() for turn in history if turn.get("role") == "user"]
+    assistant_points = [turn.get("content", "").strip() for turn in history if turn.get("role") == "assistant"]
+
+    def _bullets(label: str, items: List[str]) -> str:
+        usable = [item for item in items if item]
+        if not usable:
+            return ""
+        clipped = usable[-5:]
+        return f"**{label}:**\n" + "".join(f"- {line}\n" for line in clipped)
+
+    summary += _bullets("Recent user intents", user_points)
+    summary += _bullets("Assistant highlights", assistant_points)
+    return summary
 
 def render_requirements_markdown(req: Dict[str, Any], history: List[Dict[str, str]] = None) -> str:
     p = req.get("project", {})
@@ -23,7 +34,7 @@ def render_requirements_markdown(req: Dict[str, Any], history: List[Dict[str, st
     notes = req.get("notes", [])
 
     md = "# Software Requirements Document\n"
-    md += _format_conversation(history or [])
+    md += _summarize(history or [])
     md += _line("Project Overview")
     md += f"**Title:** {p.get('title') or ''}\n\n"
     md += f"**Summary:** {p.get('summary') or ''}\n\n"

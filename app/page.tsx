@@ -39,9 +39,10 @@ export default function Home() {
   const [requirementsMarkdown, setRequirementsMarkdown] = useState<string | null>(null)
   const [mediaSupported, setMediaSupported] = useState(true)
   const [lastReplyAudio, setLastReplyAudio] = useState<string | null>(null)
+  const autoplayAudioRef = useRef<HTMLAudioElement | null>(null)
   const [manualMessage, setManualMessage] = useState("")
   const router = useRouter()
-  const { setProjectBrief: setStoreBrief } = useSwarmStore()
+  const { setProjectBrief: setStoreBrief, setSessionId: persistSessionId } = useSwarmStore()
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
@@ -53,6 +54,10 @@ export default function Home() {
 
   const handleSubmit = () => {
     if (requirementsReady) {
+      if (autoplayAudioRef.current) {
+        autoplayAudioRef.current.pause()
+        autoplayAudioRef.current = null
+      }
       setStoreBrief(requirementsMarkdown || conversationSummary || "")
       router.push("/arena")
     }
@@ -104,13 +109,14 @@ export default function Home() {
       )
       setConversationLog(history as ConversationTurn[])
       setSessionReady(true)
+      persistSessionId(sessionId)
     } catch (error) {
       console.error("session-start", error)
       setVoiceError("Unable to reach the AI backend. Make sure it is running.")
     } finally {
       setInitializingSession(false)
     }
-  }, [initializingSession, sessionId, sessionReady])
+  }, [initializingSession, sessionId, sessionReady, persistSessionId])
 
   useEffect(() => {
     if (typeof navigator === "undefined") return
@@ -125,10 +131,23 @@ export default function Home() {
   useEffect(() => {
     if (!lastReplyAudio) return
     const audio = new Audio(`data:audio/mpeg;base64,${lastReplyAudio}`)
+    autoplayAudioRef.current?.pause()
+    autoplayAudioRef.current = audio
     audio.play().catch(() => {
       /* ignore autoplay errors */
     })
+    return () => {
+      audio.pause()
+    }
   }, [lastReplyAudio])
+
+  useEffect(
+    () => () => {
+      autoplayAudioRef.current?.pause()
+      autoplayAudioRef.current = null
+    },
+    [],
+  )
 
   const sendVoiceTurn = useCallback(
     async (audioBlob: Blob) => {
