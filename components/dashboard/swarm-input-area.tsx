@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,9 +10,15 @@ import { toast } from "sonner"
 import { ArchitecturePlanDialog } from "./architecture-plan-dialog"
 
 export function SwarmInputArea() {
-  const { projectBrief, agents, isDebating, debateFinished, architecturePlan, sseClient } = useSwarmStore()
+  const { projectBrief, agents, isDebating, debateFinished, architecturePlan, sseClient, sessionId } = useSwarmStore()
   const [showPlanDialog, setShowPlanDialog] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [buildId, setBuildId] = useState<string | null>(null)
+  const [buildStatus, setBuildStatus] = useState("idle")
+  const [buildMessage, setBuildMessage] = useState("")
+  const [downloadReady, setDownloadReady] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const handleGenerateTeam = async () => {
     if (!sseClient || !projectBrief) return
@@ -44,16 +50,63 @@ export function SwarmInputArea() {
     }
   }
 
-  const handleDownload = async () => {
-    try {
-      const response = await fetch("/api/download")
-      if (!response.ok) throw new Error("Download failed")
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+      }
+    }
+  }, [])
 
+  const fetchStatus = async (id: string | null) => {
+    if (!id) return
+    try {
+      const response = await fetch(`/api/build/status/${id}`, { cache: "no-store" })
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+      const data = await response.json()
+      setBuildStatus(data.status)
+      setBuildMessage(data.message || "")
+      if (data.status === "complete" && data.download_path) {
+        if (pollRef.current) clearInterval(pollRef.current)
+        setDownloadReady(true)
+        setIsDownloading(false)
+        toast.success("Build ready to download")
+      } else if (data.status === "failed") {
+        if (pollRef.current) clearInterval(pollRef.current)
+        setIsDownloading(false)
+        setDownloadReady(false)
+        toast.error("Build failed. You can try again.")
+      }
+    } catch (error) {
+      console.error("[build] status polling failed", error)
+    }
+  }
+
+  const startPolling = (id: string) => {
+    if (!id) return
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+    }
+    pollRef.current = setInterval(() => {
+      void fetchStatus(id)
+    }, 3000)
+    void fetchStatus(id)
+  }
+
+  const downloadArchive = async (id: string) => {
+    setIsDownloading(true)
+    try {
+      const response = await fetch(`/api/build/download/${id}`)
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `${projectBrief.slice(0, 30).replace(/\s+/g, "-")}-scaffold.zip`
+      a.download = `${projectBrief.slice(0, 30).replace(/\s+/g, "-") || "swarm-build"}-scaffold.zip`
       document.body.appendChild(a)
       a.click()
       window.URL.revokeObjectURL(url)
@@ -62,8 +115,65 @@ export function SwarmInputArea() {
     } catch (error) {
       toast.error("Failed to download artifact")
       console.error(error)
+    } finally {
+      setIsDownloading(false)
     }
   }
+
+  const handleDownload = async () => {
+    if (!sessionId) {
+      toast.error("Session not ready yet. Capture requirements first.")
+      return
+    }
+    if (!buildId || buildStatus === "failed") {
+      setIsDownloading(true)
+      setDownloadReady(false)
+      try {
+        const response = await fetch("/api/build/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId }),
+        })
+        if (!response.ok) {
+          const errorText = await response.text()
+          throw new Error(errorText || "Failed to queue build")
+        }
+        const data = await response.json()
+        console.debug("[build] start response", data)
+        const newId = data.build_id || data.buildId
+        if (!newId) {
+          throw new Error("Build ID missing from response")
+        }
+        setBuildId(newId)
+        setBuildStatus("queued")
+        setBuildMessage("Queued for generation")
+        toast.success("Build queued. Sit tight while we generate code.")
+        startPolling(newId)
+      } catch (error) {
+        setIsDownloading(false)
+        toast.error("Failed to start build")
+        console.error(error)
+      }
+      return
+    }
+
+    if (!downloadReady) {
+      toast.info("Build still running. We'll notify you when it's ready.")
+      return
+    }
+
+    await downloadArchive(buildId)
+  }
+
+  const downloadLabel = downloadReady
+    ? isDownloading
+      ? "Downloading..."
+      : "Download Artifact"
+    : buildId
+      ? buildStatus === "failed"
+        ? "Retry Build"
+        : `Building (${buildStatus})`
+      : "Generate Build"
 
   return (
     <>
@@ -118,14 +228,19 @@ export function SwarmInputArea() {
 
             <Button
               onClick={handleDownload}
-              disabled={!architecturePlan}
+              disabled={!architecturePlan || isDownloading}
               variant="outline"
               className="gap-2 ml-auto border-cyan-500/50 bg-black/60 backdrop-blur-sm hover:bg-cyan-500/10 hover:border-cyan-500 text-cyan-400 shadow-lg shadow-cyan-500/20"
             >
               <Download className="w-4 h-4" />
-              Download
+              {downloadLabel}
             </Button>
           </div>
+          {buildId && (
+            <p className="text-xs text-muted-foreground">
+              {buildMessage || (downloadReady ? "Build ready to download." : "Generating scaffold...")}
+            </p>
+          )}
         </CardContent>
       </Card>
 
